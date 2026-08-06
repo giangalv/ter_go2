@@ -82,18 +82,29 @@ echo "== 3. services =="
 # option in xorg.conf), which is too small to use RViz. See docs/remote-desktop.md.
 $SUDO tee /etc/systemd/system/go2-x11vnc.service >/dev/null <<UNIT
 [Unit]
+# graphical.target, not multi-user: the X session has to exist first. With
+# WantedBy=multi-user.target systemd pulled the unit in before the session was
+# up and then never ran it at all — no log lines, service simply dead.
 Description=x11vnc on the Jetson's graphical session
 After=graphical.target
+Wants=graphical.target
 [Service]
 Type=simple
 User=$USER
+# DISPLAY is as necessary as XAUTHORITY: without it xrandr does not know which
+# screen to act on and fails silently behind the "|| true".
+Environment=DISPLAY=$DISPLAY_NUM
 Environment=XAUTHORITY=$XAUTH
-ExecStartPre=/bin/sh -c "/usr/bin/xrandr --output DP-0 --mode $SCREEN_MODE || true"
+# A headless session can take a long time to settle: wait for the X socket
+# instead of failing and burning the restart budget.
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 60); do [ -e /tmp/.X11-unix/X${DISPLAY_NUM#:} ] && exit 0; sleep 2; done; exit 0'
+ExecStartPre=/bin/sh -c '/usr/bin/xrandr --output DP-0 --mode $SCREEN_MODE || true'
 ExecStart=/usr/bin/x11vnc -display $DISPLAY_NUM -auth $XAUTH -forever -shared -localhost -rfbport $VNC_PORT -nopw -noxdamage -repeat
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=0
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 UNIT
 
 $SUDO tee /etc/systemd/system/go2-novnc.service >/dev/null <<UNIT
@@ -105,10 +116,11 @@ Requires=go2-x11vnc.service
 Type=simple
 User=$USER
 ExecStart=/usr/bin/websockify --web=$NOVNC_DIR 127.0.0.1:$WEB_PORT 127.0.0.1:$VNC_PORT
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=0
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 UNIT
 
 $SUDO systemctl daemon-reload

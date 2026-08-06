@@ -53,6 +53,20 @@ fi
 unset ROS_LOCALHOST_ONLY
 export ROS_DOMAIN_ID=0
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+# The wireless interface only exists when the USB dongle is plugged in. Listing
+# a missing interface makes CycloneDDS refuse to start altogether
+# ("does not match an available interface"), which would break the wired path
+# too — so it is only added when actually present.
+GO2_IFACE_XML="        <NetworkInterface name=\"${GO2_ETH_IFACE}\" priority=\"default\" multicast=\"default\"/>"
+if ip link show "$GO2_WLAN_IFACE" >/dev/null 2>&1; then
+    GO2_IFACE_XML="$GO2_IFACE_XML
+        <NetworkInterface name=\"${GO2_WLAN_IFACE}\" priority=\"default\" multicast=\"default\"/>"
+else
+    echo "setup_jetson: ${GO2_WLAN_IFACE} absent (USB Wi-Fi dongle not plugged in?)." >&2
+    echo "  Continuing on ${GO2_ETH_IFACE} only: the robot works, the PC is only" >&2
+    echo "  reachable over the cable." >&2
+fi
+
 GO2_CFG="${TMPDIR:-/tmp}/cyclonedds_go2_jetson.xml"
 cat > "$GO2_CFG" <<XMLCFG
 <?xml version="1.0" encoding="UTF-8" ?>
@@ -60,8 +74,7 @@ cat > "$GO2_CFG" <<XMLCFG
   <Domain id="any">
     <General>
       <Interfaces>
-        <NetworkInterface name="${GO2_ETH_IFACE}" priority="default" multicast="default"/>
-        <NetworkInterface name="${GO2_WLAN_IFACE}" priority="default" multicast="default"/>
+$GO2_IFACE_XML
       </Interfaces>
     </General>
     <Discovery>
