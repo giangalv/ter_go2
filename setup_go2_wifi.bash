@@ -98,7 +98,7 @@ cat > "$GO2_CFG" <<XMLCFG
     </General>
     <Discovery>
       <ParticipantIndex>auto</ParticipantIndex>
-      <MaxAutoParticipantIndex>30</MaxAutoParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
       <Peers><Peer address="${GO2_JETSON_IP}"/></Peers>
     </Discovery>
   </Domain>

@@ -31,7 +31,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, SetRemap
 from launch.conditions import IfCondition
 from launch.launch_description_sources import AnyLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -56,6 +56,11 @@ def generate_launch_description():
         DeclareLaunchArgument('use_rviz', default_value='true'),
 
         # The stack itself, with its own RViz suppressed: ours replaces it.
+        # pathFollower is redirected from api/sport/request to auto_cmd, so it
+        # can no longer command the robot directly: cmd_mux decides. Without
+        # this the keyboard cannot win — the topic has no arbitration and
+        # whoever publishes at 20 Hz takes over, remote controller included.
+        SetRemap(src='/api/sport/request', dst='/auto_cmd'),
         IncludeLaunchDescription(
             AnyLaunchDescriptionSource(stack_launch),
             launch_arguments={'rvizGA': 'false'}.items(),

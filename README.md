@@ -98,7 +98,8 @@ http://localhost:6080/vnc.html
 # terminal 2, or inside that remote desktop
 ssh -t go2jetson
 source ~/ter_go2/setup_jetson.bash
-ros2 launch go2_bringup go2_view_jetson.launch.py
+ros2 launch go2_bringup go2_mapping.launch.py    # SLAM + RViz, robot cannot move
+ros2 launch go2_bringup go2_autonomy.launch.py   # adds driving — see docs/safety.md
 ```
 
 Only pixels cross the Wi-Fi. See
@@ -198,6 +199,12 @@ source ~/ter_go2/setup_jetson.bash
 ros2 run go2_bringup teleop_key
 ```
 
+### `cmd_mux` — command arbiter, the keyboard wins
+
+The only node that should publish motion commands when the autonomy stack is
+running. It forwards the stack's commands only while you allow it, and starts
+blocked. See [docs/safety.md](docs/safety.md).
+
 ### `cmd_vel_bridge` — for Nav2, joysticks, your own nodes
 
 Takes `geometry_msgs/Twist` on `/cmd_vel`, clamps it to the limits and stops the
@@ -211,6 +218,13 @@ the active mode. Run it **before** moving the robot.
 ---
 
 ## Safety
+
+**Read [docs/safety.md](docs/safety.md) before running anything that drives the
+robot.** In short: `/api/sport/request` has no arbitration, so while the
+autonomy stack runs neither the keyboard nor the Unitree remote can stop the
+Go2. Work on mapping with `go2_mapping.launch.py`, which starts no driving
+nodes at all; drive only through `cmd_mux`, which makes itself the sole
+publisher of motion commands and starts in a blocked state.
 
 Every command goes through `/api/sport/request`, the **high-level** interface:
 the onboard controller keeps balance and joint limits.
@@ -242,6 +256,7 @@ against 33-42 °C for the other joints. Lie it down when you are not using it.
 | [jetson.md](docs/jetson.md) | how the Jetson was found and addressed, what not to do |
 | [remote-desktop.md](docs/remote-desktop.md) | RViz over noVNC, autologin, headless resolution |
 | [teleoperation.md](docs/teleoperation.md) | the `mcf` controller, what works and what does not |
+| [safety.md](docs/safety.md) | who is allowed to move the robot, and how to stop it |
 | [hdmi-checklist.md](docs/hdmi-checklist.md) | first console access, kept for reference |
 
 ## Known limitations

@@ -26,6 +26,7 @@ setup(
             'state_bridge = go2_bringup.state_bridge:main',
             'teleop_key = go2_bringup.teleop_key:main',
             'cmd_vel_bridge = go2_bringup.cmd_vel_bridge:main',
+            'cmd_mux = go2_bringup.cmd_mux:main',
             'robot_info = go2_bringup.robot_info:main',
         ],
     },

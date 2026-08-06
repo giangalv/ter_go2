@@ -27,6 +27,11 @@
 # node publishes (the robot's participants are not reachable from there, so it
 # never discovers them).
 #
+# MaxAutoParticipantIndex must be generous: with `auto` every participant takes
+# the next free deterministic port, and the autonomy stack alone brings ~17
+# nodes on top of the robot's 23. At 30 the pool ran out and new nodes died with
+# "Failed to find a free participant index for domain 0".
+#
 # <ParticipantIndex>auto</ParticipantIndex> is indispensable: without it,
 # CycloneDDS assigns an ephemeral port and the PC, which searches over unicast
 # on the deterministic ports 7410+2i, would never find this node.
@@ -79,7 +84,7 @@ $GO2_IFACE_XML
     </General>
     <Discovery>
       <ParticipantIndex>auto</ParticipantIndex>
-      <MaxAutoParticipantIndex>30</MaxAutoParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
       <Peers><Peer address="${GO2_PC_IP}"/></Peers>
     </Discovery>
   </Domain>
