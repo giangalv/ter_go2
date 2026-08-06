@@ -106,6 +106,40 @@ unit gave up for good.
 a bash feature, in a `/bin/sh -c` — and `/bin/sh` is dash on Ubuntu. The test
 always failed, so the wait loop ran its full 180 seconds every time.
 
+## When the page connects but stays black
+
+The browser reports a connection and nothing appears. This is not a network
+problem, however much it looks like one.
+
+A browser retrying against a session that will not start fills x11vnc's accept
+queue with connections that never complete the RFB handshake — observed
+climbing to 7 pending. x11vnc then **livelocks at ~95% CPU**: it accepts the TCP
+connection, logs `Got connection from client`, and never sends another byte.
+
+How it was isolated: two x11vnc instances side by side, identical options and
+identical environment, differing only in who was connecting to them.
+
+| | CPU | answer |
+|---|---|---|
+| manual, port 5903, nobody attached | 0.1% | `RFB 003.008` |
+| the service, port 5900, browser retrying | 94.9% | timeout |
+
+Restarting the service alone does not fix it, because the browser resumes
+hammering immediately. **Close the tab first**, then:
+
+```bash
+~/ter_go2/vnc_restart.sh
+```
+
+It stops both services, kills any leftover spinning process (it is spinning,
+not blocked, so SIGTERM does not always take), brings x11vnc up with nobody
+attached, **verifies it actually answers RFB** rather than assuming, and only
+then starts noVNC.
+
+Two hypotheses were tried and disproved along the way: `-noxdamage` and the
+timing of the `xrandr` call. Neither was the cause. `-noxdamage` was dropped
+anyway — it disables XDAMAGE and forces a full framebuffer re-read for nothing.
+
 ## Screen lock
 
 GNOME locks the session after a few minutes and the browser then shows the lock
