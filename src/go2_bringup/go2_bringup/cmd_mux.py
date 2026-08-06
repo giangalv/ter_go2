@@ -165,6 +165,9 @@ class Go2CmdMux(Node):
         self.mode = STOPPED
         self.vx = self.vy = self.vyaw = 0.0
         self._stop_ticks = 0
+        # Drop whatever the planner had queued, so returning to AUTO cannot
+        # replay a command from before the stop.
+        self._auto_msg = None
         if damp:
             self.sport.damp()
         self.get_logger().warn(reason)
