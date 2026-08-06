@@ -82,12 +82,16 @@ echo "== 3. services =="
 # option in xorg.conf), which is too small to use RViz. See docs/remote-desktop.md.
 $SUDO tee /etc/systemd/system/go2-x11vnc.service >/dev/null <<UNIT
 [Unit]
-# graphical.target, not multi-user: the X session has to exist first. With
-# WantedBy=multi-user.target systemd pulled the unit in before the session was
-# up and then never ran it at all — no log lines, service simply dead.
 Description=x11vnc on the Jetson's graphical session
-After=graphical.target
-Wants=graphical.target
+# Deliberately NO After=/Wants=graphical.target. Combined with a WantedBy on the
+# same target that forms an ordering cycle, and systemd breaks it by silently
+# dropping the dependent job — which is why go2-novnc never started at boot,
+# without a single log line. Waiting for the X socket below does the same job
+# with no ordering dependency at all.
+# StartLimitIntervalSec belongs in [Unit]: in [Service] systemd ignores it
+# ("Unknown key name") and the default 5-tries-in-10s limit silently applies.
+StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 User=$USER
@@ -95,16 +99,14 @@ User=$USER
 # screen to act on and fails silently behind the "|| true".
 Environment=DISPLAY=$DISPLAY_NUM
 Environment=XAUTHORITY=$XAUTH
-# A headless session can take a long time to settle: wait for the X socket
-# instead of failing and burning the restart budget.
-ExecStartPre=/bin/sh -c 'for i in \$(seq 1 60); do [ -e /tmp/.X11-unix/X${DISPLAY_NUM#:} ] && exit 0; sleep 2; done; exit 0'
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 90); do [ -e /tmp/.X11-unix/X${DISPLAY_NUM#:} ] && exit 0; sleep 2; done; exit 0'
 ExecStartPre=/bin/sh -c '/usr/bin/xrandr --output DP-0 --mode $SCREEN_MODE || true'
 ExecStart=/usr/bin/x11vnc -display $DISPLAY_NUM -auth $XAUTH -forever -shared -localhost -rfbport $VNC_PORT -nopw -noxdamage -repeat
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=0
+
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target
 UNIT
 
 $SUDO tee /etc/systemd/system/go2-novnc.service >/dev/null <<UNIT
@@ -112,22 +114,36 @@ $SUDO tee /etc/systemd/system/go2-novnc.service >/dev/null <<UNIT
 Description=noVNC: the VNC session served as a web page
 After=go2-x11vnc.service
 Requires=go2-x11vnc.service
+StartLimitIntervalSec=0
+
 [Service]
 Type=simple
 User=$USER
+# websockify connects to the VNC port at startup: if x11vnc has not bound it
+# yet the process exits, and with a restart limit it gives up for good.
+# /bin/bash, not /bin/sh: /dev/tcp is a bash feature and /bin/sh is dash here.
+ExecStartPre=/bin/bash -c 'for i in {1..90}; do (echo > /dev/tcp/127.0.0.1/$VNC_PORT) &>/dev/null && exit 0; sleep 2; done; exit 0'
 ExecStart=/usr/bin/websockify --web=$NOVNC_DIR 127.0.0.1:$WEB_PORT 127.0.0.1:$VNC_PORT
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=0
+
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target
 UNIT
 
+echo "== 4. screen lock off =="
+# On a headless robot the session locks after a few minutes and the VNC view
+# shows the lock screen instead of whatever is running.
+gsettings set org.gnome.desktop.screensaver lock-enabled false 2>/dev/null || true
+gsettings set org.gnome.desktop.screensaver idle-activation-enabled false 2>/dev/null || true
+gsettings set org.gnome.desktop.session idle-delay 0 2>/dev/null || true
+
+echo "== 5. services =="
 $SUDO systemctl daemon-reload
 $SUDO systemctl enable --now go2-x11vnc.service go2-novnc.service
 sleep 3
 
-echo "== 4. check =="
+echo "== 6. check =="
 systemctl is-active go2-x11vnc.service go2-novnc.service
 ss -tlnp 2>/dev/null | grep -E ":($VNC_PORT|$WEB_PORT)" || true
 

@@ -78,6 +78,45 @@ If direct access without a tunnel is ever needed, remove `-localhost` from
 `/etc/systemd/system/go2-x11vnc.service` and add a password with
 `x11vnc -storepasswd`.
 
+## Three ways this failed to start at boot
+
+All three cost a session each, and all three are fixed in `setup_vnc.sh`.
+
+**An ordering cycle.** `go2-x11vnc` was both `WantedBy=graphical.target` and
+`After=graphical.target` — a unit ordered after the target that pulls it in.
+systemd tolerates the loop on x11vnc itself but breaks it by dropping the
+dependent job:
+
+```
+graphical.target: Found ordering cycle on go2-novnc.service/start
+Job go2-novnc.service/start deleted to break ordering cycle
+```
+
+So noVNC never started, silently, without a single line in its journal. The fix
+is to drop the target ordering entirely: `ExecStartPre` already waits for the X
+socket, which is what the dependency was trying to express.
+
+**`StartLimitIntervalSec` in the wrong section.** It belongs in `[Unit]`. In
+`[Service]` systemd ignores it — it says so, with `Unknown key name` — and the
+default limit of five attempts in ten seconds silently applies. websockify
+starting before x11vnc had bound port 5900 burned through that budget and the
+unit gave up for good.
+
+**A bash-only test under dash.** The readiness check used `/dev/tcp`, which is
+a bash feature, in a `/bin/sh -c` — and `/bin/sh` is dash on Ubuntu. The test
+always failed, so the wait loop ran its full 180 seconds every time.
+
+## Screen lock
+
+GNOME locks the session after a few minutes and the browser then shows the lock
+screen rather than RViz. On a headless robot this is pure nuisance:
+
+```bash
+gsettings set org.gnome.desktop.screensaver lock-enabled false
+gsettings set org.gnome.desktop.screensaver idle-activation-enabled false
+gsettings set org.gnome.desktop.session idle-delay 0
+```
+
 ## Resolution: the Jetson is headless
 
 With no HDMI attached, outputs DP-0 and DP-1 report `disconnected`, the NVIDIA

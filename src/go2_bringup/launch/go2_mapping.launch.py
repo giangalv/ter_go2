@@ -83,6 +83,17 @@ def generate_launch_description():
              name='vehicleToBase',
              arguments=['0', '0', '0', '0', '0', '0', 'vehicle', 'base']),
 
+        # --- front camera ---
+        # multicast_iface is eth0: the stack ships it set to enp3s0, which is
+        # the interface name on the author's external PC, not on the Jetson.
+        Node(
+            package='go2_h264_repub',
+            executable='go2_h264_repub',
+            name='go2_h264_repub',
+            output='screen',
+            parameters=[{'multicast_iface': 'eth0'}],
+        ),
+
         # --- the robot model, animated from the real joint angles ---
         Node(
             package='robot_state_publisher',
