@@ -1,27 +1,40 @@
 #!/usr/bin/env python3
-"""Command arbiter for the Go2: the keyboard always wins.
+"""Command arbiter for the Go2: one mode at a time, and SPACE always stops.
 
 The problem this solves: `/api/sport/request` has no arbitration. Whoever
 publishes at 20 Hz wins, so while the autonomy stack's `pathFollower` runs,
 neither the keyboard teleop nor the Unitree remote controller can stop the
-robot. Verified on the robot — and the robot did run off on its own, because
-`localPlanner` defaults its goal to the map origin and walks back to it.
+robot. Verified on the robot — and the robot did walk off on its own, because
+`localPlanner` defaults its goal to the map origin and returns to it.
 
-The fix is to make one node the ONLY publisher of motion commands. The autonomy
-stack is remapped to publish on `auto_cmd` instead, and this node decides what
-actually reaches the robot:
+Note that intercepting `/cmd_vel` would NOT help: in this stack `pathFollower`
+publishes on both `/cmd_vel` and `/api/sport/request`, and `vel_ctrl_repub` has
+its `/cmd_vel` subscription commented out. `/cmd_vel` is informational only —
+blocking it would stop the topic while the robot kept walking. The only path
+that reaches the motors is the sport request, so that is where this node sits:
 
     pathFollower --(auto_cmd)--> cmd_mux --(api/sport/request)--> robot
     keyboard ------------------->
 
-Priority, highest first:
+## Modes
 
-    STOPPED   latched. Autonomy is ignored and StopMove is sent continuously.
-              This is the state the node STARTS in: nothing moves until you
-              explicitly allow it.
-    MANUAL    a movement key is held: your command goes through, autonomy is
-              ignored for as long as you keep driving.
-    AUTO      nothing else is happening: autonomy commands are forwarded.
+Exactly one is active, and the mode follows what you actually do:
+
+    STOPPED   nothing moves. Autonomy is ignored and StopMove is sent
+              continuously. This is the state the node STARTS in.
+    MANUAL    you drive. Autonomy is ignored entirely, not just while a key is
+              held: releasing the keys stops the robot but stays in MANUAL.
+    AUTO      the stack drives towards its waypoint. The keyboard does not send
+              motion, but SPACE still stops everything.
+
+Switching is implicit:
+
+    press a movement key  -> MANUAL
+    a waypoint arrives    -> AUTO
+    SPACE                 -> STOPPED
+
+so you never end up in autonomy by accident, and driving by hand always takes
+the robot away from the planner.
 
 Run it on the Jetson, in a terminal (it needs a TTY):
 
@@ -29,9 +42,9 @@ Run it on the Jetson, in a terminal (it needs a TTY):
     source ~/ter_go2/setup_jetson.bash
     ros2 run go2_bringup cmd_mux
 
-Note that this is a software interlock: it protects against the autonomy stack,
-not against a crash of this node itself. The robot's power button remains the
-only stop that depends on nothing.
+This is a software interlock: it protects against the autonomy stack, not
+against a crash of this node or a dropped SSH session. The robot's power button
+remains the only stop that depends on nothing.
 """
 
 import select
@@ -40,6 +53,7 @@ import termios
 import tty
 
 import rclpy
+from geometry_msgs.msg import PointStamped
 from rclpy.node import Node
 from unitree_api.msg import Request
 
@@ -47,20 +61,18 @@ from go2_bringup.sport_client import SportClient
 
 HELP = """
 +----------------------------------------------------------------+
-|  GO2 - command arbiter. The keyboard has priority.             |
+|  GO2 - command arbiter. One mode at a time.                    |
 +----------------------------------------------------------------+
-|  STOP                                                          |
-|    SPACE   stop and BLOCK autonomy (latched)                   |
-|    x       DAMP: soft motors, the robot collapses, and block   |
+|  SPACE   STOP. Blocks everything, from any mode.               |
+|  x       DAMP: soft motors, the robot collapses. Blocks too.   |
 |                                                                |
-|  AUTONOMY                                                      |
-|    g       allow autonomy to drive (go)                        |
-|    SPACE   take it away again                                  |
-|                                                                |
-|  MANUAL DRIVING (hold; overrides autonomy)                     |
+|  MANUAL  - entered by pressing any movement key                |
 |      w             w / s   forward / backward                  |
 |    a s d           a / d   strafe                              |
 |      q e           q / e   turn                                |
+|                                                                |
+|  AUTO    - entered when a waypoint arrives, or with g          |
+|            the stack drives; the keyboard only stops           |
 |                                                                |
 |  POSTURE   1 stand up   2 lie down   3 recover                 |
 |  LIMIT     - / +   speed limit down / up                       |
@@ -77,7 +89,7 @@ MOVE_KEYS = {
     'e': (0.0, 0.0, -1.0),
 }
 
-STOPPED, AUTO, MANUAL = 'STOPPED', 'AUTO', 'MANUAL'
+STOPPED, MANUAL, AUTO = 'STOPPED', 'MANUAL', 'AUTO'
 
 
 class Go2CmdMux(Node):
@@ -86,35 +98,55 @@ class Go2CmdMux(Node):
         super().__init__('go2_cmd_mux')
 
         self.declare_parameter('auto_topic', 'auto_cmd')
+        self.declare_parameter('waypoint_topic', 'way_point')
         self.declare_parameter('max_vx', 0.6)
         self.declare_parameter('max_vy', 0.4)
         self.declare_parameter('max_vyaw', 0.8)
         self.declare_parameter('accel_step', 0.08)
-        self.declare_parameter('manual_timeout', 0.4)   # s without keys -> release
+        self.declare_parameter('key_timeout', 0.4)   # s without keys -> stand still
         self.declare_parameter('rate', 20.0)
 
         self.max_vx = float(self.get_parameter('max_vx').value)
         self.max_vy = float(self.get_parameter('max_vy').value)
         self.max_vyaw = float(self.get_parameter('max_vyaw').value)
         self.accel_step = float(self.get_parameter('accel_step').value)
-        self.manual_timeout = float(self.get_parameter('manual_timeout').value)
+        self.key_timeout = float(self.get_parameter('key_timeout').value)
         self.rate = float(self.get_parameter('rate').value)
 
-        # Fail safe: start blocked. Autonomy has to be granted, never assumed.
-        self.state = STOPPED
+        # Fail safe: start blocked. Autonomy is never assumed.
+        self.mode = STOPPED
         self.scale = 1.0
         self.vx = self.vy = self.vyaw = 0.0
         self.last_key_time = 0.0
         self._auto_msg = None
-        self._stop_sent = 0
+        self._stop_ticks = 0
 
-        self.sport = SportClient(self)   # publishes on api/sport/request
+        self.sport = SportClient(self)   # the only publisher on api/sport/request
         self.create_subscription(
             Request, self.get_parameter('auto_topic').value, self.on_auto, 10)
+        self.create_subscription(
+            PointStamped, self.get_parameter('waypoint_topic').value,
+            self.on_waypoint, 10)
 
     def on_auto(self, msg: Request):
-        """Autonomy commands are only kept, never forwarded directly."""
+        """Autonomy commands are held, never forwarded on their own."""
         self._auto_msg = msg
+
+    def on_waypoint(self, msg: PointStamped):
+        """A new waypoint is a request to drive autonomously.
+
+        Deliberately ignored while STOPPED: once you have blocked the robot,
+        a waypoint arriving from RViz must not start it again behind your back.
+        """
+        if self.mode == STOPPED:
+            self.get_logger().warn(
+                'waypoint ignored: STOPPED. Press g to hand control back.')
+            return
+        if self.mode != AUTO:
+            self.mode = AUTO
+            self.vx = self.vy = self.vyaw = 0.0
+            self.get_logger().info(
+                f'AUTO — waypoint ({msg.point.x:.2f}, {msg.point.y:.2f})')
 
     def _approach(self, current, target):
         delta = target - current
@@ -125,35 +157,38 @@ class Go2CmdMux(Node):
         return target
 
     def status(self):
-        colour = {STOPPED: 'STOPPED  ', AUTO: 'AUTONOMY ', MANUAL: 'MANUAL   '}[self.state]
-        return (f'\r[{colour}] vx={self.vx:+.2f} vy={self.vy:+.2f} '
+        label = {STOPPED: 'STOPPED', MANUAL: 'MANUAL ', AUTO: 'AUTO   '}[self.mode]
+        return (f'\r[{label}] vx={self.vx:+.2f} vy={self.vy:+.2f} '
                 f'wz={self.vyaw:+.2f}  limit {self.scale * 100:3.0f}%   ')
+
+    def _stop(self, damp=False, reason=''):
+        self.mode = STOPPED
+        self.vx = self.vy = self.vyaw = 0.0
+        self._stop_ticks = 0
+        if damp:
+            self.sport.damp()
+        self.get_logger().warn(reason)
 
     def handle_key(self, key, now):
         if key in ('\x1b', '\x03'):
             return False
 
         if key in MOVE_KEYS:
-            # Driving by hand always takes precedence, unless we are latched.
-            if self.state != STOPPED:
-                self.state = MANUAL
-                self.last_key_time = now
+            self.last_key_time = now
+            if self.mode != MANUAL:
+                self.mode = MANUAL
+                self.vx = self.vy = self.vyaw = 0.0
+                self.get_logger().info('MANUAL — autonomy excluded')
             return True
 
         if key == ' ':
-            self.state = STOPPED
-            self.vx = self.vy = self.vyaw = 0.0
-            self._stop_sent = 0
-            self.get_logger().warn('STOP — autonomy blocked. Press g to allow it again.')
+            self._stop(reason='STOP — everything blocked. Press g for autonomy.')
         elif key == 'x':
-            self.state = STOPPED
-            self.vx = self.vy = self.vyaw = 0.0
-            self._stop_sent = 0
-            self.sport.damp()
-            self.get_logger().warn('DAMP — soft motors, the robot collapses. Autonomy blocked.')
+            self._stop(damp=True, reason='DAMP — soft motors. Everything blocked.')
         elif key == 'g':
-            self.state = AUTO
-            self.get_logger().info('autonomy ALLOWED')
+            self.mode = AUTO
+            self.vx = self.vy = self.vyaw = 0.0
+            self.get_logger().info('AUTO — the stack drives')
         elif key == '1':
             self.sport.recovery_stand()
         elif key == '2':
@@ -167,9 +202,14 @@ class Go2CmdMux(Node):
         return True
 
     def spin_mux(self):
+        if not sys.stdin.isatty():
+            self.get_logger().error(
+                'cmd_mux needs a terminal: it reads the keyboard. '
+                'Over ssh use "ssh -t go2jetson", and do not redirect stdin.')
+            return
         settings = termios.tcgetattr(sys.stdin)
         print(HELP)
-        print('State: STOPPED. Autonomy cannot move the robot until you press g.\n')
+        print('Mode: STOPPED. Nothing can move the robot until you drive or press g.\n')
         try:
             tty.setcbreak(sys.stdin.fileno())
             period = 1.0 / self.rate
@@ -182,32 +222,32 @@ class Go2CmdMux(Node):
                     key = sys.stdin.read(1)
                     if not self.handle_key(key, now):
                         return
-                    if key in MOVE_KEYS and self.state == MANUAL:
+                    if key in MOVE_KEYS and self.mode == MANUAL:
                         target = MOVE_KEYS[key]
                         pressed = True
 
-                # Manual control lapses when you stop pressing keys.
-                if (self.state == MANUAL and not pressed
-                        and now - self.last_key_time > self.manual_timeout):
-                    self.state = AUTO
-                    self.vx = self.vy = self.vyaw = 0.0
-                    self.sport.stop_move()
-
-                if self.state == STOPPED:
-                    # Keep saying stop: something else may still be publishing,
-                    # and a single message can be lost.
-                    if self._stop_sent < 20 or self._stop_sent % 10 == 0:
+                if self.mode == STOPPED:
+                    # Keep repeating: a single message can be lost, and something
+                    # else may still be publishing while it shuts down.
+                    if self._stop_ticks < 20 or self._stop_ticks % 10 == 0:
                         self.sport.stop_move()
-                    self._stop_sent += 1
+                    self._stop_ticks += 1
 
-                elif self.state == MANUAL:
+                elif self.mode == MANUAL:
+                    # Releasing the keys stops the robot but does NOT hand
+                    # control back to the planner: the mode is sticky.
+                    if not pressed and now - self.last_key_time > self.key_timeout:
+                        target = (0.0, 0.0, 0.0)
                     self.vx = self._approach(self.vx, target[0] * self.max_vx * self.scale)
                     self.vy = self._approach(self.vy, target[1] * self.max_vy * self.scale)
                     self.vyaw = self._approach(self.vyaw, target[2] * self.max_vyaw * self.scale)
-                    self.sport.move(self.vx, self.vy, self.vyaw)
+                    if any(abs(v) > 1e-3 for v in (self.vx, self.vy, self.vyaw)):
+                        self.sport.move(self.vx, self.vy, self.vyaw)
+                    else:
+                        self.sport.stop_move()
 
-                elif self.state == AUTO and self._auto_msg is not None:
-                    # Forward verbatim: the stack knows what it is asking for.
+                elif self.mode == AUTO and self._auto_msg is not None:
+                    # Forwarded verbatim: the planner knows what it is asking.
                     self.sport._pub.publish(self._auto_msg)
                     self._auto_msg = None
 

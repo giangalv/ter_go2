@@ -78,16 +78,35 @@ pathFollower --(auto_cmd)--> cmd_mux --(api/sport/request)--> robot
 keyboard ------------------->
 ```
 
-Priority, highest first:
+Exactly one mode is active, and the mode follows what you actually do:
 
-| state | behaviour |
-|---|---|
-| `STOPPED` | latched. Autonomy ignored, `StopMove` sent continuously |
-| `MANUAL` | a movement key is held: your command wins |
-| `AUTO` | autonomy commands are forwarded |
+| mode | behaviour | entered by |
+|---|---|---|
+| `STOPPED` | nothing moves, `StopMove` sent continuously | SPACE, or `x` to also go limp |
+| `MANUAL` | you drive, autonomy excluded entirely | pressing any movement key |
+| `AUTO` | the stack drives towards its waypoint | a waypoint arriving, or `g` |
 
-It **starts in `STOPPED`**: autonomy has to be granted with `g`, never assumed.
-SPACE takes it away again at any moment, and `x` additionally goes limp.
+`MANUAL` is sticky: releasing the keys stops the robot but does **not** hand
+control back to the planner. You leave manual mode deliberately, never by
+letting go.
+
+A waypoint arriving while `STOPPED` is **ignored**, with a warning. Once you
+have blocked the robot, a click in RViz must not restart it behind your back.
+
+It **starts in `STOPPED`**: autonomy has to be asked for, never assumed.
+
+### Why not intercept /cmd_vel
+
+The obvious idea is to block the navigation's `/cmd_vel`. In this stack that
+would do nothing: `pathFollower` publishes on **both** `/cmd_vel` and
+`/api/sport/request`, and `vel_ctrl_repub` has its `/cmd_vel` subscription
+commented out. Nothing consumes `/cmd_vel` to move the robot — it is
+informational only. Blocking it would stop the topic while the robot kept
+walking, which is worse than doing nothing because it looks like it worked.
+
+The sport request is the only path to the motors, so that is where the arbiter
+sits. (With Nav2 this would be different: it really does drive through
+`/cmd_vel`, and `twist_mux` is the standard answer there.)
 
 This is a software interlock. It protects against the autonomy stack, not
 against a crash of the arbiter itself — the power button stays the last resort.
