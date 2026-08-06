@@ -247,6 +247,57 @@ against 33-42 °C for the other joints. Lie it down when you are not using it.
 
 ---
 
+## The autonomy stack
+
+SLAM and navigation come from
+[jizhang-cmu/autonomy_stack_go2](https://github.com/jizhang-cmu/autonomy_stack_go2):
+Point-LIO on the L1 lidar and its built-in IMU, terrain traversability
+analysis, a local planner, and FAR Planner for global routes. It is a good fit
+here — ROS 2 Foxy on Ubuntu 20.04, built-in sensors only, meant to run on the
+robot's own computer. Its README warns that Humble sees data delays above one
+second, so it belongs on the Jetson rather than the PC.
+
+Install it on the Jetson:
+
+```bash
+sudo apt install -y libusb-dev ros-foxy-perception-pcl ros-foxy-sensor-msgs-py \
+  ros-foxy-tf-transformations ros-foxy-joy ros-foxy-rmw-cyclonedds-cpp \
+  ros-foxy-rosidl-generator-dds-idl
+pip3 install transforms3d pyyaml
+
+git clone https://github.com/jizhang-cmu/autonomy_stack_go2.git ~/autonomy_stack_go2
+~/ter_go2/patch_autonomy_stack.sh          # see below
+cd ~/autonomy_stack_go2
+colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+`patch_autonomy_stack.sh` adapts four things the stack ships configured for the
+author's own setup: the camera node is commented out and points at `enp3s0`
+(the Jetson's interface is `eth0`), `sensor_scan_generation` and
+`visualization_tools` are commented out so four RViz displays never get data,
+and the RViz node is unconditional so ours cannot replace it. It is idempotent
+and keeps the original alongside.
+
+### Lidar IMU calibration, once per robot
+
+```bash
+ros2 run calibrate_imu calibrate_imu
+```
+
+The node drives the robot itself: two seconds settling, ten standing still,
+then **twenty seconds spinning in place at 1.4 rad/s**. It never translates, but
+give it clear space. The result lands in `~/Desktop/imu_calib_data.yaml`, which
+is where `transform_sensors` looks for it.
+
+### If the map disappears or the robot is in the wrong place
+
+Point-LIO has no recovery from divergence. Picking the robot up and carrying it
+is exactly the motion lidar-inertial odometry cannot follow — the estimate was
+seen jumping to 46 m away and 17 m up, at which point RViz frames empty space.
+
+Check `map -> base`: if the numbers are absurd it is divergence, not a
+visualisation problem. Restart the SLAM.
+
 ## Documentation
 
 | document | subject |
