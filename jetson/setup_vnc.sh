@@ -77,6 +77,11 @@ echo "   display: $DISPLAY_NUM"
 echo "   xauthority: $XAUTH"
 
 echo "== 3. services =="
+# Deliberately no -noxdamage: it disables the XDAMAGE extension and forces a
+# full framebuffer re-read on every pass, for no benefit here. (It was also
+# suspected of causing the x11vnc livelock — that turned out to be wrong, see
+# docs/remote-desktop.md, but it was dropped anyway.)
+#
 # ExecStartPre forces the resolution: with no HDMI attached the NVIDIA driver
 # finds no EDID and settles on 1024x768 (or 640x480 without the ConnectedMonitor
 # option in xorg.conf), which is too small to use RViz. See docs/remote-desktop.md.
@@ -101,7 +106,7 @@ Environment=DISPLAY=$DISPLAY_NUM
 Environment=XAUTHORITY=$XAUTH
 ExecStartPre=/bin/sh -c 'for i in \$(seq 1 90); do [ -e /tmp/.X11-unix/X${DISPLAY_NUM#:} ] && exit 0; sleep 2; done; exit 0'
 ExecStartPre=/bin/sh -c '/usr/bin/xrandr --output DP-0 --mode $SCREEN_MODE || true'
-ExecStart=/usr/bin/x11vnc -display $DISPLAY_NUM -auth $XAUTH -forever -shared -localhost -rfbport $VNC_PORT -nopw -noxdamage -repeat
+ExecStart=/usr/bin/x11vnc -display $DISPLAY_NUM -auth $XAUTH -forever -shared -localhost -rfbport $VNC_PORT -nopw
 Restart=always
 RestartSec=10
 
