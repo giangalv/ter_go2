@@ -105,6 +105,24 @@ ros2 launch go2_bringup go2_autonomy.launch.py   # adds driving — see docs/saf
 Only pixels cross the Wi-Fi. See
 [docs/remote-desktop.md](docs/remote-desktop.md).
 
+To have the topics themselves on the PC (front camera, robot model, LiDAR,
+odometry) as plain ROS 2 topics for RViz2 and the CLI, a zenoh bridge carries
+them over TCP. It is one-way (robot → PC) and reached through a tunnel:
+
+```bash
+# once, on each machine: zenoh/install_bridge.sh
+
+# on the Jetson
+ros2 launch go2_bringup go2_remote.launch.py
+
+# on the PC
+~/ter-home/ter_go2/zenoh/bridge_pc.sh                 # leave it running
+source ~/ter-home/ter_go2/setup_go2_remote.bash       # other terminals
+rviz2 -d ~/ter-home/ter_go2/src/go2_bringup/rviz/go2_remote.rviz
+```
+
+See [docs/remote-ros.md](docs/remote-ros.md).
+
 If you launch RViz from a plain SSH session it dies with
 `could not connect to display`. Either run it from inside the remote desktop,
 or export the display first:
@@ -215,6 +233,15 @@ robot if the stream goes quiet for longer than `timeout`.
 Prints battery, the temperature of all 12 motors, IMU, foot contact forces and
 the active mode. Run it **before** moving the robot.
 
+### `front_camera` — the robot's camera as a ROS topic
+
+The Go2 streams its front camera as RTP H.264 on multicast
+(`230.1.1.1:1720`, 1280x720, ~15 fps), not as a ROS topic; `/frontvideostream`,
+the DDS version, does not deserialise with the `unitree_go` definitions. This
+node decodes and re-encodes it on the Jetson's hardware and publishes
+`front_camera/image/compressed` (JPEG, 640x360, 10 Hz by default) at ~6% of a
+core. Jetson only.
+
 ---
 
 ## Safety
@@ -306,6 +333,7 @@ visualisation problem. Restart the SLAM.
 | [wifi.md](docs/wifi.md) | multicast requirement, bandwidth measurements, hardware options |
 | [jetson.md](docs/jetson.md) | how the Jetson was found and addressed, what not to do |
 | [remote-desktop.md](docs/remote-desktop.md) | RViz over noVNC, autologin, headless resolution |
+| [remote-ros.md](docs/remote-ros.md) | the robot's topics on the PC over Wi-Fi: one-way zenoh bridge, RViz2 |
 | [teleoperation.md](docs/teleoperation.md) | the `mcf` controller, what works and what does not |
 | [safety.md](docs/safety.md) | who is allowed to move the robot, and how to stop it |
 | [hdmi-checklist.md](docs/hdmi-checklist.md) | first console access, kept for reference |
@@ -315,6 +343,7 @@ visualisation problem. Restart the SLAM.
 DDS does not reach the PC over Wi-Fi. Participant discovery succeeds in both
 directions, but endpoint discovery (SEDP) never synchronises and no topics
 appear. MTU, routing, CPU load and configuration have all been ruled out by
-measurement; the cause is still unknown. If you need live topics on the PC,
-`foxglove_bridge` or `rosbridge_suite` are the short path — they run over TCP
-and need neither multicast nor DDS discovery.
+measurement; the cause is still unknown. For live topics on the PC,
+`go2_remote.launch.py` carries them through a zenoh bridge over TCP, which needs
+neither multicast nor DDS discovery across the Wi-Fi; see
+[docs/remote-ros.md](docs/remote-ros.md).

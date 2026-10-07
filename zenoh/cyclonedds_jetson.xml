@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS for the zenoh bridge on the Jetson (go2_remote.launch.py).
+
+  Same discovery settings as setup_jetson.bash, but eth0 only: the bridge talks
+  DDS to the robot and to the nodes on this Jetson, and reaches the PC through
+  zenoh over TCP, not through DDS. ParticipantIndex auto and a generous
+  MaxAutoParticipantIndex for the reasons given in setup_jetson.bash.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="eth0" priority="default" multicast="default"/>
+      </Interfaces>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

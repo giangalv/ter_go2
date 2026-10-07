@@ -1,0 +1,26 @@
+// zenoh-bridge-ros2dds on the PC. Started by remote_pc.bash.
+// See docs/remote-ros.md.
+{
+  plugins: {
+    ros2dds: {
+      // A domain of its own, on localhost only, so that the robot's topics do
+      // not mix with whatever else runs on this PC (its default is domain 99).
+      // setup_go2_remote.bash sets the same for RViz2 and the ros2 CLI.
+      domain: 2,
+      ros_localhost_only: true,
+      // INCOMING ONLY, the mirror of jetson.json5: the robot's topics are
+      // written into the PC's DDS, and nothing published on the PC is sent out.
+      allow: {
+        subscribers: [
+          "/tf", "/tf_static", "/robot_description", "/joint_states", "/odom",
+          "/go2/.*", "/front_camera/.*",
+        ],
+      },
+    },
+  },
+  mode: "router",
+  // The Jetson's bridge, through the SSH tunnel opened by remote_pc.bash.
+  connect: { endpoints: ["tcp/127.0.0.1:7447"] },
+  listen: { endpoints: [] },
+  scouting: { multicast: { enabled: false } },
+}

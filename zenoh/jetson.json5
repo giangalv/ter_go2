@@ -1,0 +1,27 @@
+// zenoh-bridge-ros2dds on the Jetson. Started by go2_remote.launch.py.
+// See docs/remote-ros.md.
+{
+  plugins: {
+    ros2dds: {
+      // The robot's domain.
+      domain: 0,
+      // OUTGOING ONLY. With `allow`, an interface kind that is not listed, or
+      // listed empty, is entirely denied: no `subscribers` means nothing coming
+      // from the PC is ever written into the robot's DDS (no /api/sport/request),
+      // and no services or actions either. Each entry must match the whole name.
+      allow: {
+        publishers: [
+          "/tf", "/tf_static", "/robot_description", "/joint_states", "/odom",
+          "/go2/.*", "/front_camera/.*",
+        ],
+      },
+    },
+  },
+  mode: "router",
+  // Localhost only: the PC comes in through an SSH tunnel, as for the remote
+  // desktop. Nobody else on the campus Wi-Fi can connect.
+  listen: { endpoints: ["tcp/127.0.0.1:7447"] },
+  // No multicast scouting: do not discover or be discovered by other zenoh
+  // nodes on the network.
+  scouting: { multicast: { enabled: false } },
+}
