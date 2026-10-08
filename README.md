@@ -10,8 +10,13 @@ Two machines are involved, running different ROS 2 distributions:
 | desktop PC | RViz2, development | Humble |
 | onboard Jetson Orin NX | talks to the robot, runs the nodes | Foxy |
 
-The same workspace is deployed to both, at `~/ter_go2` on the Jetson and
-`~/Documents/GitHub/ter_go2` on the PC.
+On the PC the repository lives in `~/Documents/GitHub/ter_go2`
+(`~/ter-home/ter_go2` is a symlink to it). On the Jetson `~/ter_go2` is a
+**copy, not a clone**, laid out differently: `src/` built there with Foxy, and
+the contents of `jetson/` plus `zenoh/` at its root (`~/ter_go2/setup_jetson.bash`,
+`~/ter_go2/vnc_restart.sh`, ...). The `unitree_*` message packages come from
+`~/unitree_ros2/cyclonedds_ws` there. After changing a file, copy it over
+(`scp`) and rebuild the package on the Jetson.
 
 ---
 
@@ -85,8 +90,15 @@ ssh go2jetson-eth        # when the cable is attached
 ```
 
 Both aliases live in `~/.ssh/config` and use the key `~/.ssh/id_go2_jetson`.
-The Wi-Fi address comes from DHCP; `setup_go2_wifi.bash` finds the Jetson by
-its MAC address, so a changed lease does not break anything.
+`go2jetson` points at a fixed address (130.251.13.140), but the Wi-Fi address
+comes from DHCP: if `ssh go2jetson` stops answering, the lease has probably
+changed. Find the new address over the cable, or by the dongle's MAC, then
+update `HostName` in `~/.ssh/config`:
+
+```bash
+ssh go2jetson-eth 'ip -br addr show wlan0'      # with the cable
+ip neigh | grep -i 0c:ef:15:39:51:c6             # without, if it is in the ARP cache
+```
 
 Run the visualisation **on the Jetson** and watch it in a browser on the PC:
 
