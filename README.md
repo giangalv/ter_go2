@@ -38,8 +38,10 @@ That leaves two ways to work, and you pick one depending on whether the robot
 is tethered:
 
 * **cable attached** — the PC talks to the robot directly. Best on the bench.
-* **robot untethered** — everything runs on the Jetson and you look at it
-  through a browser. This is the normal mode of operation.
+* **robot untethered** — everything runs on the Jetson. You look at it either
+  through a browser (RViz on the Jetson, only pixels cross the Wi-Fi), or with
+  RViz2 and the ROS tools on the PC, the topics carried by a one-way zenoh
+  bridge. This is the normal mode of operation.
 
 See [docs/architecture.md](docs/architecture.md) for why, with measurements.
 
@@ -105,9 +107,10 @@ ros2 launch go2_bringup go2_autonomy.launch.py   # adds driving — see docs/saf
 Only pixels cross the Wi-Fi. See
 [docs/remote-desktop.md](docs/remote-desktop.md).
 
-To have the topics themselves on the PC (front camera, robot model, LiDAR,
-odometry) as plain ROS 2 topics for RViz2 and the CLI, a zenoh bridge carries
-them over TCP. It is one-way (robot → PC) and reached through a tunnel:
+To have the topics themselves on the PC (the Go2's front camera, the RealSense,
+robot model, LiDAR, odometry) as plain ROS 2 topics for RViz2 and the CLI, a
+zenoh bridge carries them over TCP. It is one-way (robot → PC) and reached
+through a tunnel:
 
 ```bash
 # once, on each machine: zenoh/install_bridge.sh
@@ -155,6 +158,26 @@ understand the `<Interfaces><NetworkInterface>` syntax and fails with
 Credentials for the Jetson are the Unitree factory defaults: user `unitree`,
 password `123`, same for `sudo`.
 
+### USB on the Jetson: RealSense and Wi-Fi dongle
+
+* **USB-C port:** unpowered until `/etc/rc.local` switches it on. The factory
+  script did that with `busybox devmem`, and busybox is not installed, so a
+  RealSense on that port never appeared. It now uses
+  `/usr/local/sbin/devmem_write` (`jetson/devmem_write.py`). See
+  [docs/jetson.md](docs/jetson.md#usb-c-port-off-until-rclocal-switches-it-on).
+* **Wi-Fi dongle and watchdog:** both connectors share the Jetson's only USB
+  controller, so `go2-usb-wifi-watchdog` (`jetson/usb_wifi_watchdog.sh`) resets
+  it only when the controller is dead, not every time the dongle drops off. A
+  dongle that keeps disconnecting is a connector problem first: re-seating it
+  took the count from 201 disconnects in 36 min to 0. See
+  [docs/wifi.md](docs/wifi.md#the-dongle-the-usb-bus-and-the-watchdog).
+
+```bash
+journalctl -b -t usbc-enable                      # 0x02430030: ... -> 0x4
+lsusb -t | grep uvcvideo                          # RealSense at 5000M
+journalctl -k -b | grep -c "USB disconnect"       # should stay at 0
+```
+
 ---
 
 ## Packages
@@ -163,7 +186,7 @@ password `123`, same for `sudo`.
 |---|---|
 | `unitree_go`, `unitree_api`, `unitree_hg` | message definitions, from `unitreerobotics/unitree_ros2` |
 | `go2_description` | URDF and meshes, from `unitreerobotics/unitree_ros`, repackaged for ament |
-| `go2_bringup` | bridges, launch files, RViz config, teleoperation |
+| `go2_bringup` | bridges, cameras (Go2 front camera, RealSense), launch files, RViz configs, teleoperation |
 
 ## Nodes
 
@@ -340,8 +363,8 @@ visualisation problem. Restart the SLAM.
 | document | subject |
 |---|---|
 | [architecture.md](docs/architecture.md) | the three machines, why DDS cannot cross Wi-Fi, the ParticipantIndex trap |
-| [wifi.md](docs/wifi.md) | multicast requirement, bandwidth measurements, hardware options |
-| [jetson.md](docs/jetson.md) | how the Jetson was found and addressed, what not to do |
+| [wifi.md](docs/wifi.md) | multicast requirement, bandwidth measurements, hardware options, the dongle watchdog |
+| [jetson.md](docs/jetson.md) | how the Jetson was found and addressed, the USB-C port fix, what not to do |
 | [remote-desktop.md](docs/remote-desktop.md) | RViz over noVNC, autologin, headless resolution |
 | [remote-ros.md](docs/remote-ros.md) | the robot's topics on the PC over Wi-Fi: one-way zenoh bridge, RViz2 |
 | [teleoperation.md](docs/teleoperation.md) | the `mcf` controller, what works and what does not |

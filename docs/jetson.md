@@ -118,6 +118,38 @@ Physical connectors on the robot: one USB-C and one USB-A. Note that
 `/sys/class/udc/` is empty, so **USB device mode is not available** — a direct
 USB cable from the PC to the Jetson is not an option.
 
+Both connectors, and so the dongle and anything else plugged in, hang off the
+one USB controller, `3610000.xhci`. The watchdog that recovers the dongle
+therefore must not reset that controller lightly: see
+[wifi.md](wifi.md#the-dongle-the-usb-bus-and-the-watchdog).
+
+## USB-C port: off until rc.local switches it on
+
+The USB-C port is unpowered at boot. Unitree's factory `/etc/rc.local` switches
+it on in two steps (a copy of the procedure is in `~/Desktop/USBCstart.txt`):
+
+```
+busybox devmem 0x02430030 w 0x004        # pinmux
+echo 446 > /sys/class/gpio/export        # GPIO PP.06 high
+echo out > /sys/class/gpio/PP.06/direction
+echo 1 > /sys/class/gpio/PP.06/value
+```
+
+busybox is not installed, so the first line failed at every boot
+(`/etc/rc.local: 1: busybox: not found`) while the GPIO lines ran. The register
+stayed at its boot value (0x20 or 0x70) and a RealSense D435i plugged into the
+port never enumerated. The pinmux line now calls
+`/usr/local/sbin/devmem_write` instead (`jetson/devmem_write.py`, the same
+32-bit write in Python, reading the value back):
+
+```
+/usr/local/sbin/devmem_write 0x02430030 0x004 | logger -t usbc-enable
+```
+
+The original is kept as `/etc/rc.local.orig-20261007`. Verified on three
+boots (a cold start and two reboots): `journalctl -b -t usbc-enable` shows `0x02430030: 0x70 -> 0x4`, and the
+D435i appears on the USB 3 bus (`lsusb -t`: `uvcvideo`, 5000M).
+
 ## Clock
 
 The RTC is battery-backed and survives power cycles. It was found set to 1970
