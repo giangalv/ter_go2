@@ -242,6 +242,16 @@ node decodes and re-encodes it on the Jetson's hardware and publishes
 `front_camera/image/compressed` (JPEG, 640x360, 10 Hz by default) at ~6% of a
 core. Jetson only.
 
+### `realsense_camera` — the RealSense on the Jetson
+
+The Intel RealSense D435i on the Jetson's USB-C port (powered by `rc.local`, see
+`jetson/devmem_write.py`), published for looking at from the PC:
+`realsense/color/image/compressed` (JPEG, 640x480, 10 Hz) and
+`realsense/depth_colored/image/compressed` (depth as a JPEG colour map, warm =
+near, 5 Hz). Uses ~18% of a core. The pipeline restarts by itself if the camera
+drops off the USB bus. Anything that needs metric depth should read the camera
+on the Jetson rather than through this node.
+
 ---
 
 ## Safety

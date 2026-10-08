@@ -34,12 +34,15 @@ ros2 topic list
  robot_state_publisher  /robot_description ┐                 ┌─▶ RViz2, ros2 CLI, rqt, rosbag
  state_bridge           /tf /joint_states  │  zenoh bridge   │
                         /odom /go2/*       ├─▶ (OUT only) ═══╪═▶ zenoh bridge (IN only) ──┘
- front_camera           /front_camera/...  ┘  127.0.0.1:7447 │   ssh -L 7447 over Wi-Fi
+ front_camera           /front_camera/...  │  127.0.0.1:7447 │   ssh -L 7447 over Wi-Fi
+ realsense_camera       /realsense/...     ┘                 │
 ```
 
 * **Jetson side:** `go2_remote.launch.py` starts `robot_state_publisher`,
   `state_bridge` (LiDAR relayed on `/go2/cloud`, capped at 5 Hz), `front_camera`
-  (hardware-encoded JPEG, 10 Hz) and the bridge with `zenoh/jetson.json5`. The
+  (the Go2's own camera, hardware-encoded JPEG, 10 Hz), `realsense_camera` (the
+  RealSense on the Jetson: colour 10 Hz and colour-mapped depth 5 Hz;
+  `realsense:=false` leaves it off) and the bridge with `zenoh/jetson.json5`. The
   bridge's own DDS participant uses `zenoh/cyclonedds_jetson.xml` (eth0 only,
   same discovery settings as `setup_jetson.bash`).
 * **PC side:** `zenoh/bridge_pc.sh` opens the SSH tunnel and runs the bridge with
@@ -83,6 +86,19 @@ On the PC, through the tunnel over Wi-Fi:
 | `/tf` | 120 Hz | |
 | `/robot_description` | latched, received | |
 
+The three cameras together (2026-10-08), counted as messages actually received
+in 10 s:
+
+| topic | received on the PC | bandwidth |
+|---|---|---|
+| `/front_camera/image/compressed` | 9.9 msg/s | 1.21 Mbit/s |
+| `/realsense/color/image/compressed` | 10.0 msg/s | 1.24 Mbit/s |
+| `/realsense/depth_colored/image/compressed` | 5.0 msg/s | 1.73 Mbit/s |
+| total | | 4.2 Mbit/s |
+
+The Wi-Fi carried 19.2 Mbit/s from the Jetson to the PC (20 MB through SSH) in
+the same session, so the cameras use about a fifth of it.
+
 ## Things that bit
 
 * **Which binary.** Neither build of 1.10.x runs everywhere: the x86_64 `gnu`
@@ -92,6 +108,11 @@ On the PC, through the tunnel over Wi-Fi:
   `_Unwind_Backtrace: symbol not found`. 1.9.0 `gnu` needs GLIBC_2.34 on x86_64
   and 2.30 on aarch64 (the Jetson has 2.31), so `install_bridge.sh` pins 1.9.0
   on both ends. Both bridges must run the same version.
+* **`ros2 topic hz` is no measure here.** It derives the rate from the gaps
+  between the messages it did receive, so a bursty stream skews it. Three
+  instances running at once showed the cameras at about half rate, and one
+  alone reported 7 Hz for a 5 Hz publisher. Counting the messages received in a
+  fixed time showed every camera at its full rate.
 * **Do not mix with the wired setup.** `setup_go2.bash` (wired) exports a
   `CYCLONEDDS_URI` for the Ethernet interface and domain 0. `bridge_pc.sh` and
   `setup_go2_remote.bash` clear it. Use one or the other in a given terminal.

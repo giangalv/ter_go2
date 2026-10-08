@@ -29,6 +29,7 @@ setup(
             'cmd_mux = go2_bringup.cmd_mux:main',
             'robot_info = go2_bringup.robot_info:main',
             'front_camera = go2_bringup.front_camera:main',
+            'realsense_camera = go2_bringup.realsense_camera:main',
         ],
     },
 )

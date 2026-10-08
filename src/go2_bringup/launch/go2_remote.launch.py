@@ -21,10 +21,12 @@ The bridge here is OUTGOING ONLY and listens on localhost (zenoh/jetson.json5):
 nothing published on the PC is written into the robot's DDS, and the way in is
 the SSH tunnel. See docs/remote-ros.md.
 
-What crosses: the front camera (hardware-encoded JPEG, front_camera.py), the
-robot model, joints and TF (state_bridge + robot_state_publisher), odometry,
-battery, IMU and the LiDAR cloud capped at `cloud_max_hz`. Only the topics the
-PC actually subscribes to are sent.
+What crosses: the robot's front camera (hardware-encoded JPEG,
+front_camera.py), the RealSense colour and colour-mapped depth
+(realsense_camera.py, `realsense:=false` to leave it off), the robot model,
+joints and TF (state_bridge + robot_state_publisher), odometry, battery, IMU
+and the LiDAR cloud capped at `cloud_max_hz`. Only the topics the PC actually
+subscribes to are sent.
 """
 
 import os
@@ -32,6 +34,7 @@ import os
 from ament_index_python.packages import get_package_prefix, get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -54,6 +57,8 @@ def generate_launch_description():
         DeclareLaunchArgument('cloud_max_hz', default_value='5.0',
                               description='LiDAR cloud rate on /go2/cloud. The source is '
                                           '~15 Hz for 5.4 Mbit/s.'),
+        DeclareLaunchArgument('realsense', default_value='true',
+                              description='Also publish the RealSense on the Jetson.'),
     ]
 
     return LaunchDescription(args + [
@@ -84,6 +89,13 @@ def generate_launch_description():
                 'width': LaunchConfiguration('camera_width'),
                 'height': LaunchConfiguration('camera_height'),
             }],
+        ),
+        Node(
+            package='go2_bringup',
+            executable='realsense_camera',
+            name='go2_realsense_camera',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('realsense')),
         ),
         ExecuteProcess(
             cmd=[os.path.join(zenoh, 'bin', 'zenoh-bridge-ros2dds'),

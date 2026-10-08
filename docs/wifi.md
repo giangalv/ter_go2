@@ -149,8 +149,41 @@ The Jetson has **no built-in wireless**, so it needs a USB Wi-Fi dongle. See
 how its driver was built.
 
 DDS from the Jetson to the PC currently does not complete endpoint discovery —
-see the known limitations in the README. The working setup runs RViz on the
-Jetson and views it in a browser: [remote-desktop.md](remote-desktop.md).
+see the known limitations in the README. Two setups work around it: RViz on
+the Jetson viewed in a browser ([remote-desktop.md](remote-desktop.md)), or the
+robot's topics carried to the PC by a zenoh bridge
+([remote-ros.md](remote-ros.md)).
+
+### The dongle, the USB bus and the watchdog
+
+`go2-usb-wifi-watchdog.service` (`jetson/usb_wifi_watchdog.sh`, installed as
+`/usr/local/sbin/usb_wifi_watchdog.sh`) brings the dongle back when it
+disappears. The Jetson has a **single USB controller**, `3610000.xhci`, and the
+RealSense on the USB-C port hangs off it too, so the watchdog resets the
+controller only when the controller itself is dead. Measured on 2026-10-08:
+
+* **The dongle itself dropping off the bus.** It disconnected and re-enumerated
+  every 3-15 s from 27 s after boot (201 disconnects in 36 min), with no kernel
+  error before any of them, while the controller was healthy. The old watchdog
+  answered every disappearance with a full controller reset, and each reset took
+  the RealSense down as well. The third left neither device on the bus.
+  **Re-seating the dongle fixed it:** after a reboot, 0 disconnects, still 0
+  after several minutes with the RealSense streaming. A dongle that keeps
+  disconnecting is a connector or power problem first, not a software one.
+* **What the watchdog does now** when `wlan0` is missing: it waits 20 s (a
+  dropped dongle comes back by itself). If the controller is dead (no USB device
+  left, or `HC died` / `controller error detected` in the kernel log), it resets
+  it as before. If the dongle is on the bus without `wlan0`, it reloads the
+  `88x2bu` driver only. If the dongle is off the bus and the controller is
+  alive, it leaves everything alone and logs a hint to check the dongle.
+* The kernel warnings `NULL pointer, cannot free irq` with `88x2bu(OE)` in the
+  module list come from the watchdog's own unbind of the controller. They are a
+  side effect of a reset, not a driver crash.
+
+```bash
+journalctl -b -u go2-usb-wifi-watchdog            # what it did
+journalctl -k -b | grep -c "USB disconnect"       # how often anything dropped off
+```
 
 ---
 

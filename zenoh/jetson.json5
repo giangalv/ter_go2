@@ -12,7 +12,7 @@
       allow: {
         publishers: [
           "/tf", "/tf_static", "/robot_description", "/joint_states", "/odom",
-          "/go2/.*", "/front_camera/.*",
+          "/go2/.*", "/front_camera/.*", "/realsense/.*",
         ],
       },
     },
