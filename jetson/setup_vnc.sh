@@ -126,8 +126,11 @@ Type=simple
 User=$USER
 # websockify connects to the VNC port at startup: if x11vnc has not bound it
 # yet the process exits, and with a restart limit it gives up for good.
-# /bin/bash, not /bin/sh: /dev/tcp is a bash feature and /bin/sh is dash here.
-ExecStartPre=/bin/bash -c 'for i in {1..90}; do (echo > /dev/tcp/127.0.0.1/$VNC_PORT) &>/dev/null && exit 0; sleep 2; done; exit 0'
+# Check that the port is LISTENING, without connecting to it. The previous probe
+# opened a connection, wrote a newline and closed it without the RFB handshake,
+# and that alone put x11vnc 0.9.16 into its livelock at every boot: 100% CPU, no
+# answer to anyone (reproduced on 2026-10-08, see docs/remote-desktop.md).
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 90); do ss -ltn "sport = :$VNC_PORT" | grep -q LISTEN && exit 0; sleep 2; done; exit 0'
 ExecStart=/usr/bin/websockify --web=$NOVNC_DIR 127.0.0.1:$WEB_PORT 127.0.0.1:$VNC_PORT
 Restart=always
 RestartSec=10

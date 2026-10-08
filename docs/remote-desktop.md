@@ -140,6 +140,33 @@ Two hypotheses were tried and disproved along the way: `-noxdamage` and the
 timing of the `xrandr` call. Neither was the cause. `-noxdamage` was dropped
 anyway — it disables XDAMAGE and forces a full framebuffer re-read for nothing.
 
+### The trigger at every boot: our own readiness probe (2026-10-08)
+
+x11vnc was also found at 100% CPU right from boot, with no browser anywhere.
+The log showed one `Got connection from client 127.0.0.1` two seconds after it
+started, at the moment `go2-novnc` started. Its `ExecStartPre` checked that
+x11vnc was up with `echo > /dev/tcp/127.0.0.1/5900`: open a connection, write a
+newline, close it, never doing the RFB handshake. That is enough. Reproduced on
+a fresh x11vnc with noVNC stopped:
+
+| step | x11vnc CPU | answers RFB |
+|---|---|---|
+| just started, nobody attached | 0.2% | yes |
+| a real client: reads `RFB 003.008`, then closes | 0.2% | yes |
+| the probe: connects, writes `\n`, closes | → 100% | **no** |
+
+The socket stays in `CLOSE-WAIT` and x11vnc spins on it. The probe now checks
+that the port is listening without connecting
+(`ss -ltn "sport = :5900" | grep -q LISTEN`, in `setup_vnc.sh`), and the boot
+test after the change showed x11vnc at 0.0% and answering. A browser retrying
+against a session that will not start produces the same pattern, which is the
+case described above.
+
+A wrong turn on the way: the Jetson's clock was also jumping at boot (see
+[jetson.md](jetson.md#clock)), and x11vnc was starting just before the jump. The
+clock is now fixed, but with the clock right x11vnc still locked up until the
+probe was changed. The clock was not the cause.
+
 ## Screen lock
 
 GNOME locks the session after a few minutes and the browser then shows the lock

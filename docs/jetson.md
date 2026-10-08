@@ -152,8 +152,26 @@ D435i appears on the USB 3 bus (`lsusb -t`: `uvcvideo`, 5000M).
 
 ## Clock
 
-The RTC is battery-backed and survives power cycles. It was found set to 1970
-and was synchronised once; it has held correctly across reboots since.
+Neither RTC keeps the time with the robot switched off (corrected 2026-10-08;
+this section used to say the opposite). After a power-off `rtc0`
+(`nvvrs-pseq-rtc`) and `rtc1` (`tegra_rtc`, the one `/dev/rtc` points to) both
+read 1970-01-02.
+
+That would only cost a few seconds, because `systemd-timesyncd` restores the last
+known time early in boot and NTP corrects it once the Wi-Fi is up. But the
+factory `/etc/rc.local` started with `hwclock -s`, which runs after that
+restore, copies the 1970 RTC back into the system clock, and sends it back 56
+years until NTP jumps it forward again. Measured on one boot:
+
+| seconds after boot | event | clock |
+|---|---|---|
+| 13.9 | timesyncd restores the last known time | 2026, right |
+| 32.3 | rc.local: `hwclock -s` | **1970-01-02** |
+| 44.2 | first NTP synchronisation | 2026 |
+
+The line was removed (`/etc/rc.local.bak-20261008` keeps the previous version),
+and the journal now has the right time from boot. Without Wi-Fi the clock starts
+from the last time the Jetson was on, not from the real time.
 
 This matters more than it looks: PC and Jetson need aligned clocks or TF
 transforms between the two machines will not resolve.
