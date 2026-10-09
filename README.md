@@ -15,8 +15,12 @@ On the PC the repository lives in `~/Documents/GitHub/ter_go2`
 **copy, not a clone**, laid out differently: `src/` built there with Foxy, and
 the contents of `jetson/` plus `zenoh/` at its root (`~/ter_go2/setup_jetson.bash`,
 `~/ter_go2/vnc_restart.sh`, ...). The `unitree_*` message packages come from
-`~/unitree_ros2/cyclonedds_ws` there. After changing a file, copy it over
-(`scp`) and rebuild the package on the Jetson.
+`~/unitree_ros2/cyclonedds_ws` there. After changing a file, `./deploy.sh`
+copies the repository over in that layout and rebuilds it on the Jetson
+(`--dry-run` shows what would change; `./deploy.sh go2jetson` goes over Wi-Fi).
+Files installed outside `~/ter_go2` with sudo (`rc.local`, the watchdog,
+`devmem_write`, the VNC units) are left alone and reinstalled by hand, as
+`deploy.sh` explains.
 
 ---
 

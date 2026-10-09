@@ -99,10 +99,10 @@ ssh go2jetson                                   # shell on the Jetson
 source ~/ter-home/ter_go2/setup_go2_remote.bash
 ```
 
-`setup_go2_wifi.bash` was the first attempt at the untethered case: DDS from
-the Jetson to the PC over Wi-Fi with unicast peers. Participant discovery works,
-endpoint discovery never completes, and no topic ever appears, so it is not a
-way to get the topics on the PC.
+The first attempt at the untethered case was DDS from the Jetson to the PC over
+Wi-Fi with unicast peers (`setup_go2_wifi.bash`, removed on 2026-10-09).
+Participant discovery works, endpoint discovery never completes, and no topic
+ever appears, so it was not a way to get the topics on the PC.
 
 On the Jetson, always:
 
@@ -119,11 +119,11 @@ know the `<Interfaces><NetworkInterface>` syntax and fails with
 
 * The Jetson's Wi-Fi address comes from DHCP and changes, while the `go2jetson`
   alias in `~/.ssh/config` points at a fixed address. The MAC
-  (`0c:ef:15:39:51:c6`) does not change: `setup_go2_wifi.bash` contains a
-  lookup by MAC (ARP cache first, then a sweep of the subnet), and with the
-  cable attached `ssh go2jetson-eth 'ip -br addr show wlan0'` gives it
-  directly. The permanent fix is a **DHCP reservation** on the router — ask
-  whoever administers it, quoting the MAC and the name `ter-go2-jetson`.
+  (`0c:ef:15:39:51:c6`) does not change. With the cable attached,
+  `ssh go2jetson-eth 'ip -br addr show wlan0'` gives the address directly;
+  without it, `ip neigh | grep -i 0c:ef:15:39:51:c6` finds it if the Jetson is
+  in the ARP cache. The permanent fix is a **DHCP reservation** on the router —
+  ask whoever administers it, quoting the MAC and the name `ter-go2-jetson`.
 
   A hand-picked static address on this subnet is **not advisable**: it is a
   campus-managed network, the DHCP pool boundaries are unknown, and you would
